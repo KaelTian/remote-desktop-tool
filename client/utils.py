@@ -1,30 +1,86 @@
 import pickle
 import socket
-from pynput.mouse import Listener as MouseListener
-from pynput.keyboard import Listener as KeyboardListener
+from pynput.mouse import Listener as MouseListener, Button
+from pynput.keyboard import Listener as KeyboardListener, Key
+from typing import Dict, Any
 
-# 发送输入事件
-def send_input(event, client_socket):
-    event_data = pickle.dumps(event)
-    client_socket.sendall(event_data)
+class InputHandler:
+    def __init__(self, client_socket: socket.socket):
+        self.client_socket = client_socket
+        self.mouse_listener = None
+        self.keyboard_listener = None
 
-# 捕获鼠标事件
-def on_click(x, y, button, pressed, client_socket):
-    if pressed:
-        send_input({'type': 'mouse', 'action': 'click', 'x': x, 'y': y, 'button': button}, client_socket)
+    def send_input(self, event: Dict[str, Any]) -> None:
+        """发送输入事件到服务器"""
+        try:
+            event_data = pickle.dumps(event)
+            self.client_socket.sendall(event_data)
+        except Exception as e:
+            print(f"发送输入事件失败: {e}")
 
-# 捕获键盘事件
-def on_press(key, client_socket):
-    send_input({'type': 'keyboard', 'action': 'press', 'key': key}, client_socket)
+    def on_mouse_move(self, x: int, y: int) -> None:
+        """处理鼠标移动"""
+        self.send_input({
+            'type': 'mouse',
+            'action': 'move',
+            'x': x,
+            'y': y
+        })
 
-def on_release(key, client_socket):
-    send_input({'type': 'keyboard', 'action': 'release', 'key': key}, client_socket)
+    def on_click(self, x: int, y: int, button: Button, pressed: bool) -> None:
+        """处理鼠标点击"""
+        self.send_input({
+            'type': 'mouse',
+            'action': 'press' if pressed else 'release',
+            'x': x,
+            'y': y,
+            'button': str(button).split('.')[-1]
+        })
 
-# 启动输入监听
-def start_input_listener(client_socket):
-    mouse_listener = MouseListener(on_click=lambda x, y, button, pressed: on_click(x, y, button, pressed, client_socket))
-    keyboard_listener = KeyboardListener(on_press=lambda key: on_press(key, client_socket),
-                                         on_release=lambda key: on_release(key, client_socket))
-    mouse_listener.start()
-    keyboard_listener.start()
-    return mouse_listener, keyboard_listener
+    def on_scroll(self, x: int, y: int, dx: int, dy: int) -> None:
+        """处理鼠标滚轮"""
+        self.send_input({
+            'type': 'mouse',
+            'action': 'scroll',
+            'x': x,
+            'y': y,
+            'dx': dx,
+            'dy': dy
+        })
+
+    def on_press(self, key: Key) -> None:
+        """处理键盘按下"""
+        self.send_input({
+            'type': 'keyboard',
+            'action': 'press',
+            'key': str(key)
+        })
+
+    def on_release(self, key: Key) -> None:
+        """处理键盘释放"""
+        self.send_input({
+            'type': 'keyboard',
+            'action': 'release',
+            'key': str(key)
+        })
+
+    def start(self):
+        """启动输入监听"""
+        self.mouse_listener = MouseListener(
+            on_move=self.on_mouse_move,
+            on_click=self.on_click,
+            on_scroll=self.on_scroll
+        )
+        self.keyboard_listener = KeyboardListener(
+            on_press=self.on_press,
+            on_release=self.on_release
+        )
+        
+        self.mouse_listener.start()
+        self.keyboard_listener.start()
+        return self.mouse_listener, self.keyboard_listener
+
+def start_input_listener(client_socket: socket.socket):
+    """创建并启动输入处理器"""
+    handler = InputHandler(client_socket)
+    return handler.start()
