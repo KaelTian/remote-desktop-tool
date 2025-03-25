@@ -115,4 +115,4 @@ remote-desktop-tool/
     将生成的server.exe和client.exe分别分发给机器B和机器A。
 
     许可证
-    本项目基于 MIT License 开源。1
+    本项目基于 MIT License 开源。1234
