@@ -1,18 +1,23 @@
 import pickle
 import socket
+import pyautogui
 from pynput.mouse import Listener as MouseListener, Button
 from pynput.keyboard import Listener as KeyboardListener, Key
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 class InputHandler:
     def __init__(self, client_socket: socket.socket):
         self.client_socket = client_socket
         self.mouse_listener = None
         self.keyboard_listener = None
+        self.screen_width, self.screen_height = pyautogui.size()
 
     def send_input(self, event: Dict[str, Any]) -> None:
         """发送输入事件到服务器"""
         try:
+            # 添加客户端屏幕分辨率信息
+            event['screen_width'] = self.screen_width
+            event['screen_height'] = self.screen_height
             event_data = pickle.dumps(event)
             self.client_socket.sendall(event_data)
         except Exception as e:

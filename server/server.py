@@ -6,6 +6,7 @@ import sys
 import threading
 import logging
 import time
+import keyboard
 from typing import Optional, Tuple
 from .utils import capture_screen, handle_input
 
@@ -13,7 +14,8 @@ class RemoteDesktopServer:
     def __init__(self, host: str = '0.0.0.0', port: int = 9999, 
                  screen_capture_interval: float = 0.1,
                  buffer_size: int = 1024,
-                 max_connections: int = 1):
+                 max_connections: int = 1,
+                 compression_level: int = 6):
         """
         初始化远程桌面服务器
         
@@ -23,16 +25,19 @@ class RemoteDesktopServer:
             screen_capture_interval: 屏幕捕获间隔（秒）
             buffer_size: 接收缓冲区大小
             max_connections: 最大连接数
+            compression_level: 压缩级别（0-9）
         """
         self.host = host
         self.port = port
         self.screen_capture_interval = screen_capture_interval
         self.buffer_size = buffer_size
         self.max_connections = max_connections
+        self.compression_level = compression_level
         
         # 状态标志
         self.running = False
         self.connected = False
+        self.exit_event = threading.Event()
         
         # 资源
         self.server_socket: Optional[socket.socket] = None
@@ -49,6 +54,10 @@ class RemoteDesktopServer:
         # 设置日志
         self._setup_logging()
         
+        # 设置信号处理
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        
     def _setup_logging(self):
         """配置日志记录"""
         logging.basicConfig(
@@ -64,12 +73,14 @@ class RemoteDesktopServer:
     def signal_handler(self, signum: int, frame):
         """处理系统信号"""
         self.logger.info("收到退出信号，正在关闭服务器...")
+        self.exit_event.set()
         self.stop()
 
     def stop(self):
         """停止服务器并清理资源"""
         self.running = False
         self.connected = False
+        self.exit_event.set()
         
         # 停止线程
         if self.screen_thread and self.screen_thread.is_alive():
@@ -106,13 +117,13 @@ class RemoteDesktopServer:
 
     def handle_screen_capture(self):
         """处理屏幕捕获和发送"""
-        while self.running and self.connected:
+        while self.running and self.connected and not self.exit_event.is_set():
             try:
                 start_time = time.time()
                 
                 # 捕获屏幕
-                img = capture_screen()
-                img_data = zlib.compress(pickle.dumps(img))
+                frame_data = capture_screen()
+                img_data = zlib.compress(pickle.dumps(frame_data), level=self.compression_level)
                 
                 # 发送数据
                 self.client_socket.sendall(len(img_data).to_bytes(4, 'big'))
@@ -134,12 +145,13 @@ class RemoteDesktopServer:
                     self.last_stats_time = current_time
                     
             except Exception as e:
-                self.logger.error(f"屏幕捕获/发送错误: {e}")
+                if not self.exit_event.is_set():
+                    self.logger.error(f"屏幕捕获/发送错误: {e}")
                 break
 
     def handle_input_events(self):
         """处理输入事件"""
-        while self.running and self.connected:
+        while self.running and self.connected and not self.exit_event.is_set():
             try:
                 event_data = self.client_socket.recv(self.buffer_size)
                 if not event_data:
@@ -148,7 +160,8 @@ class RemoteDesktopServer:
                 event = pickle.loads(event_data)
                 handle_input(event)
             except Exception as e:
-                self.logger.error(f"输入处理错误: {e}")
+                if not self.exit_event.is_set():
+                    self.logger.error(f"输入处理错误: {e}")
                 break
 
     def _print_stats(self):
@@ -161,10 +174,6 @@ class RemoteDesktopServer:
 
     def start(self):
         """启动服务器"""
-        # 设置信号处理
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -172,13 +181,19 @@ class RemoteDesktopServer:
             self.server_socket.listen(self.max_connections)
             
             self.logger.info(f"服务器正在监听 {self.host}:{self.port}...")
-            self.logger.info("按 Ctrl+C 可以优雅退出")
+            self.logger.info("按 'q' 键可以优雅退出")
+            
+            # 启动键盘监听线程
+            keyboard_thread = threading.Thread(target=self._keyboard_listener)
+            keyboard_thread.daemon = True
+            keyboard_thread.start()
             
             self.running = True
             self.start_time = time.time()
             
-            while self.running:
+            while self.running and not self.exit_event.is_set():
                 try:
+                    self.server_socket.settimeout(1.0)  # 设置超时，以便能够检查exit_event
                     self.client_socket, addr = self.server_socket.accept()
                     self.connected = True
                     self.logger.info(f"新客户端连接: {addr}")
@@ -197,8 +212,10 @@ class RemoteDesktopServer:
                     self.screen_thread.join()
                     self.input_thread.join()
                     
+                except socket.timeout:
+                    continue
                 except socket.error as e:
-                    if self.running:  # 只在非主动停止时打印错误
+                    if self.running and not self.exit_event.is_set():
                         self.logger.error(f"Socket错误: {e}")
                     break
                 finally:
@@ -215,14 +232,26 @@ class RemoteDesktopServer:
         finally:
             self.stop()
 
+    def _keyboard_listener(self):
+        """监听键盘输入"""
+        while self.running and not self.exit_event.is_set():
+            if keyboard.is_pressed('q'):
+                self.logger.info("检测到'q'键按下，正在关闭服务器...")
+                self.exit_event.set()
+                break
+            time.sleep(0.1)
+
 def main():
     """主函数"""
     try:
         server = RemoteDesktopServer()
         server.start()
+    except KeyboardInterrupt:
+        logging.info("收到键盘中断信号，程序正常退出")
     except Exception as e:
         logging.error(f"程序异常退出: {e}")
-        sys.exit(1)
+    finally:
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

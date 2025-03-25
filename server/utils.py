@@ -2,65 +2,61 @@ from mss import mss
 import numpy as np
 from pynput.mouse import Button, Controller as MouseController
 from pynput.keyboard import Controller as KeyboardController, Key
+import pyautogui
+from PIL import ImageGrab
+from typing import Tuple, Dict, Any
 
 # 初始化输入控制器
 mouse = MouseController()
 keyboard = KeyboardController()
 
-# 捕获屏幕
-def capture_screen():
-    with mss() as sct:
-        # 获取所有显示器
-        monitor = sct.monitors[1]  # 主显示器
-        # 获取显示器实际分辨率
-        screenshot = sct.grab(monitor)
-        img = np.array(screenshot)
-        return img
+def get_screen_resolution() -> Tuple[int, int]:
+    """获取屏幕分辨率"""
+    width, height = pyautogui.size()
+    return width, height
+
+def capture_screen() -> Dict[str, Any]:
+    """捕获屏幕并返回图像数据和分辨率信息"""
+    screenshot = ImageGrab.grab()
+    frame = np.array(screenshot)
+    width, height = get_screen_resolution()
+    return {
+        'image': frame,
+        'resolution': (width, height)
+    }
 
 # 处理输入事件
-def handle_input(event):
-    if event['type'] == 'mouse':
-        # 更新鼠标位置
-        x, y = event['x'], event['y'] 
-        mouse.position = (x, y)
-        
-        if event['action'] == 'click':
-            # 处理鼠标按钮
-            button = Button.left
-            if event['button'] == 'right':
-                button = Button.right
-            elif event['button'] == 'middle':
-                button = Button.middle
+def handle_input(event: Dict[str, Any]) -> None:
+    """处理输入事件"""
+    try:
+        if event['type'] == 'mouse':
+            screen_width, screen_height = get_screen_resolution()
+            client_x = event.get('x', 0)
+            client_y = event.get('y', 0)
+            client_width = event.get('screen_width', screen_width)
+            client_height = event.get('screen_height', screen_height)
+            
+            # 计算实际坐标
+            x = int((client_x * screen_width) / client_width)
+            y = int((client_y * screen_height) / client_height)
+            
+            if event['action'] == 'move':
+                pyautogui.moveTo(x, y)
+            elif event['action'] in ['press', 'release']:
+                button = event['button'].lower()
+                if event['action'] == 'press':
+                    pyautogui.mouseDown(x, y, button=button)
+                else:
+                    pyautogui.mouseUp(x, y, button=button)
+            elif event['action'] == 'scroll':
+                pyautogui.scroll(event.get('dy', 0))
                 
-            # 执行点击
-            mouse.press(button)
-            mouse.release(button)
-        elif event['action'] == 'press':
-            button = Button.left
-            if event['button'] == 'right':
-                button = Button.right
-            elif event['button'] == 'middle':
-                button = Button.middle
-            mouse.press(button)
-        elif event['action'] == 'release':
-            button = Button.left
-            if event['button'] == 'right':
-                button = Button.right
-            elif event['button'] == 'middle':
-                button = Button.middle
-            mouse.release(button)
-        elif event['action'] == 'scroll':
-            # 处理滚轮事件
-            dx, dy = event.get('dx', 0), event.get('dy', 0)
-            mouse.scroll(dx, dy)
-            
-    elif event['type'] == 'keyboard':
-        key = event['key']
-        # 处理特殊按键
-        if isinstance(key, str) and key.startswith('Key.'):
-            key = getattr(Key, key.split('.')[1])
-            
-        if event['action'] == 'press':
-            keyboard.press(key)
-        elif event['action'] == 'release':
-            keyboard.release(key)
+        elif event['type'] == 'keyboard':
+            key = event['key'].strip("'")
+            if event['action'] == 'press':
+                pyautogui.keyDown(key)
+            else:
+                pyautogui.keyUp(key)
+                
+    except Exception as e:
+        print(f"处理输入事件时出错: {e}")
