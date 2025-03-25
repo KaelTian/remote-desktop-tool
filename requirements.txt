@@ -1,4 +1,7 @@
-mss
-opencv-python
+pyautogui 
+keyboard 
+pillow 
+numpy 
+opencv-python 
+mss 
 pynput
-numpy
