@@ -157,5 +157,5 @@ class RemoteDesktopClient:
             self.stop()
 
 if __name__ == "__main__":
-    client = RemoteDesktopClient()
+    client = RemoteDesktopClient('192.168.0.209')
     client.start()
