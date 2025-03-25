@@ -18,7 +18,7 @@ remote-desktop-tool/
 │ └── utils.py # 工具函数（如屏幕捕获、输入处理）
 ├── client/ # 客户端代码
 │ ├── init.py
-│ ├── client.py # 客户端主程序
+│ ├── client.py # 客户端主程序1
 │ └── utils.py # 工具函数（如图像显示、输入捕获）
 └── scripts/ # 辅助脚本
 ├── start_server.sh # 启动服务端的脚本
