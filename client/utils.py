@@ -4,6 +4,7 @@ import pyautogui
 from pynput.mouse import Listener as MouseListener, Button
 from pynput.keyboard import Listener as KeyboardListener, Key
 from typing import Dict, Any, Tuple
+import logging
 
 class InputHandler:
     def __init__(self, client_socket: socket.socket):
@@ -19,6 +20,7 @@ class InputHandler:
             event['screen_width'] = self.screen_width
             event['screen_height'] = self.screen_height
             event_data = pickle.dumps(event)
+            print(f"Sending event: {event}")  # 添加日志输出
             self.client_socket.sendall(event_data)
         except Exception as e:
             print(f"发送输入事件失败: {e}")
@@ -39,7 +41,7 @@ class InputHandler:
             'action': 'press' if pressed else 'release',
             'x': x,
             'y': y,
-            'button': str(button).split('.')[-1]
+            'button': button.name
         })
 
     def on_scroll(self, x: int, y: int, dx: int, dy: int) -> None:
